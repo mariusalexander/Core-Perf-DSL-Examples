@@ -15,27 +15,38 @@
  */
 
 /*********************************** Microaction Section ***********************************/
-Connector {Pc, Pc_p, Pc_np}
+Connector {Pc, Pc_np, Pc_p}
 Connector {Xa, Xb, Xd}
 
-Resource {PC_Gen, Decoder, ALU, Multi, Reg, DPort_W(dMemModel), DPort_R(dMemModel), IPort_R(iMemModel)}
+Resource {PCGen, Decoder, ALU, Reg} 
+Resource {MUL(3), MULH(6)}
+Resource {DIV(12), DIVU(12)}
+// disabled dynamic mem delays
+Resource {DPort_W(1), DPort_R(1), IPort_R(1)}
+Resource {MEM_Bypass(1), WB_Bypass(1)}
 
 // General Microactions
 Microaction {
     uA_IF (Pc -> IPort_R),
-    uA_PC_GEN (Pc -> PC_Gen -> Pc_p),
+    uA_PCGEN (Pc -> PCGen -> Pc_p),
     uA_ID (Decoder),
+    uA_ID_JUMP (Xa -> Decoder -> Pc_np),
     uA_OF_A (Xa),
     uA_OF_B (Xb),
     uA_ALU_branch (ALU -> Pc_np),
     uA_ALU_mem (ALU),
-    uA_MEM_W (DPort_W)
+    uA_MEM_W (DPort_W),
+    uA_MEM_Bypass (MEM_Bypass),
+    uA_WB_Bypass (WB_Bypass)
 }
 
 // Non-forwarding Microactions
 Microaction {
     uA_ALU_arith_nfw (ALU),
-    uA_MUL_nfw (Multi),
+    uA_MUL_nfw (MUL),
+    uA_MULH_nfw (MULH),
+    uA_DIV_nfw (DIV),
+    uA_DIVU_nfw (DIVU),
     uA_MEM_R_nfw (DPort_R),
     uA_WB_nfw (Reg -> Xd)
 }
@@ -43,7 +54,10 @@ Microaction {
 // Forwarding Microactions
 Microaction {
     uA_ALU_arith_fw (ALU -> Xd),
-    uA_MUL_fw (Multi -> Xd),
+    uA_MUL_fw (MUL -> Xd),
+    uA_MULH_fw (MULH -> Xd),
+    uA_DIV_fw (DIV -> Xd),
+    uA_DIVU_fw (DIVU -> Xd),
     uA_MEM_R_fw (DPort_R -> Xd),
     uA_WB_fw (Reg)
 }
@@ -52,17 +66,20 @@ Microaction {
 virtual Microaction {
     vuA_ALU_arith,
     vuA_MUL,
+    vuA_MULH,
+    vuA_DIV,
+    vuA_DIVU,
     vuA_MEM_R,
     vuA_WB
 }
 
 /*********************************** Stages & Pipeline ***********************************/
 Stage {
-    IF_stage (uA_IF, uA_PC_GEN),
-    ID_stage (uA_ID, uA_OF_A, uA_OF_B),
-    EX_stage (vuA_ALU_arith, vuA_MUL, uA_ALU_branch, uA_ALU_mem),
-    MEM_stage (vuA_MEM_R, uA_MEM_W),
-    WB_stage (vuA_WB)
+    IF_stage (uA_IF, uA_PCGEN),
+    ID_stage (uA_ID, uA_ID_JUMP, uA_OF_A, uA_OF_B),
+    EX_stage (vuA_ALU_arith, uA_ALU_branch, uA_ALU_mem, vuA_MUL, vuA_MULH, vuA_DIV, vuA_DIVU),
+    MEM_stage (vuA_MEM_R, uA_MEM_W, uA_MEM_Bypass),
+    WB_stage (vuA_WB, uA_WB_Bypass)
 }
 Pipeline SimplePipeline (IF_stage -> ID_stage -> EX_stage -> MEM_stage -> WB_stage)
 
@@ -92,6 +109,7 @@ ConnectorModel staBranchPredModel (
 
 ConnectorModel noBranchPredModel (
     link : "models/common/NoBranchPredictModel.h"
+    trace: {pc, brTarget} // not needed but used for debugging
     connectorIn : {Pc_p, Pc_np}
     connectorOut : Pc
 )
@@ -106,104 +124,103 @@ ResourceModel dMemModel (
 
 /*********************************** Instruction Section ***********************************/
 InstrGroup {
-    Arith_Ra_Rb (add, sub, sll, xor, or, and, cadd),
-    Mul (mul, rem),
-    Arith_Ra (addi, sltiu, xori, ori, andi, caddi, cslli, caddi16sp),
-    Arith_Rb (cmv),
-    Arith_X (cli),
-    Store (sb, sh, sw, csw),
-    Load (lh, lw, lbu, lhu, clw),
+    Arith_Ra_Rb (add, sub, xor, or, and, slt, sltu, sll, srl, sra),
+    Arith_Ra (addi, xori, ori, andi, slti, sltiu, slli, srli, srai),
+    Arith_X (auipc, lui),
+    Mul_Ra_Rb (mul),
+    MulH_Ra_Rb (mulh, mulhu, muhsu),
+    Div_Ra_Rb (div, rem),
+    DivU_Ra_Rb (divu, remu),
+    Csr_Ra (csrrw, csrrs, csrrc), // adopted from CV32, no dedicated CSR Resource
+    Csr_X (csrrwi, csrrsi, csrrci),
+    Store (sb, sh, sw),
+    Load (lw, lh, lhu, lb, lbu),
     Branch_Ra_Rb (beq, bne, blt, bge, bltu, bgeu),
-    Branch_Ra (cbeqz, cbnez),
     Default ([?])
 }
 
-InstrGroup {
-    Arith_R_Type (add, sub, sll, xor, or, and, mul, rem),
-    Branch_B_Type (beq, bne, blt, bge, bltu, bgeu),
-    Load_I_Type (lb, lh, lw, lbu, lhu),
-    Arith_I_Type (addi, slti, sltiu, xori, ori, andi),
-    Store_S_Type (sb, sh, sw),
-    Branch_CB_Type (cbeqz, cbnez),
-    Arith_CR_Type (cadd),
-    Arith_CI_Type (caddi, cslli),
-    Load_CL_Type (clw),
-    Store_CS_Type (csw),
-    Move_CR_Type (cmv),
-    Load_CI_Type (cli),
-    Addi16sp_CI_Type (caddi16sp)
-}
-
 MicroactionMapping {
-    [ALL] : {uA_IF, uA_PC_GEN, uA_ID},
-    Arith_Ra_Rb : {uA_OF_A, uA_OF_B, vuA_ALU_arith, vuA_WB},
-    Arith_Ra : {uA_OF_A, vuA_ALU_arith, vuA_WB},
-    Arith_Rb : {uA_OF_B, vuA_ALU_arith, vuA_WB},
-    Arith_X :  {vuA_ALU_arith, vuA_WB},
-    Mul : {uA_OF_A, uA_OF_B, vuA_MUL, vuA_WB},
-    Store : {uA_OF_A, uA_OF_B, uA_ALU_mem, uA_MEM_W},
-    Load : {uA_OF_A, uA_ALU_mem, vuA_MEM_R, vuA_WB},
-    Branch_Ra_Rb : {uA_OF_A, uA_OF_B, uA_ALU_branch},
-    Branch_Ra : {uA_OF_A, uA_ALU_branch}
+    [ALL] :         {uA_IF, uA_PCGEN, uA_ID},
+    Arith_Ra_Rb :   {uA_OF_A, uA_OF_B, vuA_ALU_arith, uA_MEM_Bypass, vuA_WB},
+    Arith_Ra :      {uA_OF_A,          vuA_ALU_arith, uA_MEM_Bypass, vuA_WB},
+    Arith_X :       {                  vuA_ALU_arith, uA_MEM_Bypass, vuA_WB},
+    Csr_Ra :        {uA_OF_A,          vuA_ALU_arith, uA_MEM_Bypass, vuA_WB},
+    Csr_X :         {                  vuA_ALU_arith, uA_MEM_Bypass, vuA_WB},
+    Mul_Ra_Rb :     {uA_OF_A, uA_OF_B, vuA_MUL,       uA_MEM_Bypass, vuA_WB},
+    MulH_Ra_Rb :    {uA_OF_A, uA_OF_B, vuA_MULH,      uA_MEM_Bypass, vuA_WB},
+    Div_Ra_Rb :     {uA_OF_A, uA_OF_B, vuA_DIV,       uA_MEM_Bypass, vuA_WB},
+    DivU_Ra_Rb :    {uA_OF_A, uA_OF_B, vuA_DIVU,      uA_MEM_Bypass, vuA_WB},
+    Store :         {uA_OF_A, uA_OF_B, uA_ALU_mem,    uA_MEM_W,      uA_WB_Bypass},
+    Load :          {uA_OF_A,          uA_ALU_mem,    vuA_MEM_R,     vuA_WB},
+    Branch_Ra_Rb :  {uA_OF_A, uA_OF_B, uA_ALU_branch},
+    jal :           {                  uA_ALU_branch},
+    jalr :          {uA_OF_A,          uA_ALU_branch}
 }
 
 TraceValueMapping {
     [ALL] : {
         pc = "$resolved{$pc}"
     },
-    Arith_R_Type : {
+    Arith_Ra_Rb : {
         rs1 = "$bitfield{rs1}",
         rs2 = "$bitfield{rs2}",
         rd  = "$bitfield{rd}"
     },
-    Branch_B_Type : {
+    Arith_Ra : {
         rs1 = "$bitfield{rs1}",
-	rs2 = "$bitfield{rs2}",
-	brTarget = "$resolved{$pc + (((int16_t)($bitfield{imm} << 3)) >> 3)}"
+        rd  = "$bitfield{rd}"
     },
-    Load_I_Type : {
-        rs1 = "$bitfield{rs1}",
-	rd  = "$bitfield{rd}"
+    Arith_X : {
+        rd  = "$bitfield{rd}"
     },
-    Arith_I_Type : {
+    Csr_Ra : {
         rs1 = "$bitfield{rs1}",
-	rd  = "$bitfield{rd}"
+        rd  = "$bitfield{rd}"
     },
-    Store_S_Type : {
+    Csr_X : {
+        rd  = "$bitfield{rd}"
+    },
+    Mul_Ra_Rb : {
         rs1 = "$bitfield{rs1}",
-	rs2 = "$bitfield{rs2}"
-   },
-   Branch_CB_Type : {
-        rs1 = "$bitfield{rs1}",
-	brTarget = "$resolved{$pc + (((int16_t)($bitfield{imm} << 7)) >> 7)}"
-   },
-   Arith_CR_Type : {
-        rs1 = "$bitfield{rs1}",
-	rs2 = "$bitfield{rs2}",
-	rd  = "$bitfield{rd}"
-   },
-   Arith_CI_Type : {
-        rs1 = "$bitfield{rs1}",
-	rd  = "$bitfield{rd}"
-   },
-   Load_CL_Type	: {
-        rs1 = "$bitfield{rs1}",
-	rd  = "$bitfield{rd}"
-   },
-   Store_CS_Type : {
-        rs1 = "$bitfield{rs1}",
-	rs2 = "$bitfield{rs2}"
-   },
-   Move_CR_Type : {
         rs2 = "$bitfield{rs2}",
-	rd  = "$bitfield{rd}"
+        rd  = "$bitfield{rd}"
+    },
+    MulH_Ra_Rb : {
+        rs1 = "$bitfield{rs1}",
+        rs2 = "$bitfield{rs2}",
+        rd  = "$bitfield{rd}"
+    },
+    Div_Ra_Rb : {
+        rs1 = "$bitfield{rs1}",
+        rs2 = "$bitfield{rs2}",
+        rd  = "$bitfield{rd}"
+    },
+    DivU_Ra_Rb : {
+        rs1 = "$bitfield{rs1}",
+        rs2 = "$bitfield{rs2}",
+        rd  = "$bitfield{rd}"
+    },
+    Store : {
+        rs1 = "$bitfield{rs1}",
+        rs2 = "$bitfield{rs2}"
+    },
+    Load : {
+        rs1 = "$bitfield{rs1}",
+        rd  = "$bitfield{rd}"
+    },
+    Branch_Ra_Rb : {
+        rs1 = "$bitfield{rs1}",
+	    rs2 = "$bitfield{rs2}",
+	    brTarget = "$resolved{$pc + (((int16_t)($bitfield{imm} << 3)) >> 3)}"
    },
-   Load_CI_Type : {
-	rd = "$bitfield{rd}"
+   jal : {
+        rd = "$bitfield{rd}",
+	    brTarget = "$resolved{$pc + (((int32_t)($bitfield{imm} << 11)) >> 11)}"
    },
-   Addi16sp_CI_Type : {
-	rs1 = "2",
-	rd  = "2"
+   jalr : {
+        rs1 = "$bitfield{rs1}",
+        rd = "$bitfield{rd}",
+	    brTarget = "($resolved{$pc + (((int16_t)($bitfield{imm} << 4)) >> 4)}) & -2U"
    }
 }
 
@@ -218,6 +235,9 @@ CorePerfModel SimpleRISCV_H_fw_NoBrPred (
     assign Microaction : {
         vuA_ALU_arith = uA_ALU_arith_fw,
         vuA_MUL = uA_MUL_fw,
+        vuA_MULH = uA_MULH_fw,
+        vuA_DIV = uA_DIV_fw,
+        vuA_DIVU = uA_DIVU_fw,
         vuA_MEM_R = uA_MEM_R_fw,
         vuA_WB = uA_WB_fw
     }
@@ -230,6 +250,9 @@ CorePerfModel SimpleRISCV_H_fw_StaBrPred (
     assign Microaction : {
         vuA_ALU_arith = uA_ALU_arith_fw,
         vuA_MUL = uA_MUL_fw,
+        vuA_MULH = uA_MULH_fw,
+        vuA_DIV = uA_DIV_fw,
+        vuA_DIVU = uA_DIVU_fw,
         vuA_MEM_R = uA_MEM_R_fw,
         vuA_WB = uA_WB_fw
     }
@@ -242,6 +265,9 @@ CorePerfModel SimpleRISCV_H_fw_DynBrPred (
     assign Microaction : {
         vuA_ALU_arith = uA_ALU_arith_fw,
         vuA_MUL = uA_MUL_fw,
+        vuA_MULH = uA_MULH_fw,
+        vuA_DIV = uA_DIV_fw,
+        vuA_DIVU = uA_DIVU_fw,
         vuA_MEM_R = uA_MEM_R_fw,
         vuA_WB = uA_WB_fw
     }
@@ -256,6 +282,9 @@ CorePerfModel SimpleRISCV_H_nfw_NoBrPred (
     assign Microaction : {
         vuA_ALU_arith = uA_ALU_arith_nfw,
         vuA_MUL = uA_MUL_nfw,
+        vuA_MULH = uA_MULH_nfw,
+        vuA_DIV = uA_DIV_nfw,
+        vuA_DIVU = uA_DIVU_nfw,
         vuA_MEM_R = uA_MEM_R_nfw,
         vuA_WB = uA_WB_nfw
     }
@@ -268,6 +297,9 @@ CorePerfModel SimpleRISCV_H_nfw_StaBrPred (
     assign Microaction : {
         vuA_ALU_arith = uA_ALU_arith_nfw,
         vuA_MUL = uA_MUL_nfw,
+        vuA_MULH = uA_MULH_nfw,
+        vuA_DIV = uA_DIV_nfw,
+        vuA_DIVU = uA_DIVU_nfw,
         vuA_MEM_R = uA_MEM_R_nfw,
         vuA_WB = uA_WB_nfw
     }
@@ -280,6 +312,9 @@ CorePerfModel SimpleRISCV_H_nfw_DynBrPred (
     assign Microaction : {
         vuA_ALU_arith = uA_ALU_arith_nfw,
         vuA_MUL = uA_MUL_nfw,
+        vuA_MULH = uA_MULH_nfw,
+        vuA_DIV = uA_DIV_nfw,
+        vuA_DIVU = uA_DIVU_nfw,
         vuA_MEM_R = uA_MEM_R_nfw,
         vuA_WB = uA_WB_nfw
     }
