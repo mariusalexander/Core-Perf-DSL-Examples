@@ -18,7 +18,7 @@
 Connector {Pc, Pc_np, Pc_p}
 Connector {Xa, Xb, Xd}
 
-Resource {PCGen, Decoder, ALU, Reg} 
+Resource {PCGen, Decoder, ALU, Reg}
 Resource {MUL(3), MULH(6)}
 Resource {DIV(12), DIVU(12)}
 // disabled dynamic mem delays
@@ -128,7 +128,7 @@ InstrGroup {
     Arith_Ra (addi, xori, ori, andi, slti, sltiu, slli, srli, srai),
     Arith_X (auipc, lui),
     Mul_Ra_Rb (mul),
-    MulH_Ra_Rb (mulh, mulhu, muhsu),
+    MulH_Ra_Rb (mulh, mulhu, mulhsu),
     Div_Ra_Rb (div, rem),
     DivU_Ra_Rb (divu, remu),
     Csr_Ra (csrrw, csrrs, csrrc), // adopted from CV32, no dedicated CSR Resource
@@ -319,4 +319,3 @@ CorePerfModel SimpleRISCV_H_nfw_DynBrPred (
         vuA_WB = uA_WB_nfw
     }
 )
-
