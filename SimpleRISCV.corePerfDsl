@@ -30,7 +30,8 @@ Microaction {
     uA_IF (Pc -> IPort_R),
     uA_PCGEN (Pc -> PCGen -> Pc_p),
     uA_ID (Decoder),
-    uA_ID_JUMP (Xa -> Decoder -> Pc_np),
+    uA_ID_JUMP (Decoder -> Pc_np),
+    uA_ID_JUMP_REG (Xa -> Decoder -> Pc_np),
     uA_OF_A (Xa),
     uA_OF_B (Xb),
     uA_ALU_branch (ALU -> Pc_np),
@@ -76,7 +77,7 @@ virtual Microaction {
 /*********************************** Stages & Pipeline ***********************************/
 Stage {
     IF_stage (uA_IF, uA_PCGEN),
-    ID_stage (uA_ID, uA_ID_JUMP, uA_OF_A, uA_OF_B),
+    ID_stage (uA_ID, uA_ID_JUMP, uA_ID_JUMP_REG, uA_OF_A, uA_OF_B),
     EX_stage (vuA_ALU_arith, uA_ALU_branch, uA_ALU_mem, vuA_MUL, vuA_MULH, vuA_DIV, vuA_DIVU),
     MEM_stage (vuA_MEM_R, uA_MEM_W, uA_MEM_Bypass),
     WB_stage (vuA_WB, uA_WB_Bypass)
@@ -109,7 +110,6 @@ ConnectorModel staBranchPredModel (
 
 ConnectorModel noBranchPredModel (
     link : "models/common/NoBranchPredictModel.h"
-    trace: {pc, brTarget} // not needed but used for debugging
     connectorIn : {Pc_p, Pc_np}
     connectorOut : Pc
 )
@@ -140,21 +140,21 @@ InstrGroup {
 }
 
 MicroactionMapping {
-    [ALL] :         {uA_IF, uA_PCGEN, uA_ID},
-    Arith_Ra_Rb :   {uA_OF_A, uA_OF_B, vuA_ALU_arith, uA_MEM_Bypass, vuA_WB},
-    Arith_Ra :      {uA_OF_A,          vuA_ALU_arith, uA_MEM_Bypass, vuA_WB},
-    Arith_X :       {                  vuA_ALU_arith, uA_MEM_Bypass, vuA_WB},
-    Csr_Ra :        {uA_OF_A,          vuA_ALU_arith, uA_MEM_Bypass, vuA_WB},
-    Csr_X :         {                  vuA_ALU_arith, uA_MEM_Bypass, vuA_WB},
-    Mul_Ra_Rb :     {uA_OF_A, uA_OF_B, vuA_MUL,       uA_MEM_Bypass, vuA_WB},
-    MulH_Ra_Rb :    {uA_OF_A, uA_OF_B, vuA_MULH,      uA_MEM_Bypass, vuA_WB},
-    Div_Ra_Rb :     {uA_OF_A, uA_OF_B, vuA_DIV,       uA_MEM_Bypass, vuA_WB},
-    DivU_Ra_Rb :    {uA_OF_A, uA_OF_B, vuA_DIVU,      uA_MEM_Bypass, vuA_WB},
-    Store :         {uA_OF_A, uA_OF_B, uA_ALU_mem,    uA_MEM_W,      uA_WB_Bypass},
-    Load :          {uA_OF_A,          uA_ALU_mem,    vuA_MEM_R,     vuA_WB},
-    Branch_Ra_Rb :  {uA_OF_A, uA_OF_B, uA_ALU_branch},
-    jal :           {                  uA_ALU_branch},
-    jalr :          {uA_OF_A,          uA_ALU_branch}
+    [ALL] :         {uA_IF, uA_PCGEN},
+    Arith_Ra_Rb :   {uA_ID, uA_OF_A, uA_OF_B, vuA_ALU_arith, uA_MEM_Bypass, vuA_WB},
+    Arith_Ra :      {uA_ID, uA_OF_A,          vuA_ALU_arith, uA_MEM_Bypass, vuA_WB},
+    Arith_X :       {uA_ID,                   vuA_ALU_arith, uA_MEM_Bypass, vuA_WB},
+    Csr_Ra :        {uA_ID, uA_OF_A,          vuA_ALU_arith, uA_MEM_Bypass, vuA_WB},
+    Csr_X :         {uA_ID,                   vuA_ALU_arith, uA_MEM_Bypass, vuA_WB},
+    Mul_Ra_Rb :     {uA_ID, uA_OF_A, uA_OF_B, vuA_MUL,       uA_MEM_Bypass, vuA_WB},
+    MulH_Ra_Rb :    {uA_ID, uA_OF_A, uA_OF_B, vuA_MULH,      uA_MEM_Bypass, vuA_WB},
+    Div_Ra_Rb :     {uA_ID, uA_OF_A, uA_OF_B, vuA_DIV,       uA_MEM_Bypass, vuA_WB},
+    DivU_Ra_Rb :    {uA_ID, uA_OF_A, uA_OF_B, vuA_DIVU,      uA_MEM_Bypass, vuA_WB},
+    Store :         {uA_ID, uA_OF_A, uA_OF_B, uA_ALU_mem,    uA_MEM_W,      uA_WB_Bypass},
+    Load :          {uA_ID, uA_OF_A,          uA_ALU_mem,    vuA_MEM_R,     vuA_WB},
+    Branch_Ra_Rb :  {uA_ID, uA_OF_A, uA_OF_B, uA_ALU_branch},
+    jal :           {                  uA_ID_JUMP},
+    jalr :          {uA_OF_A,          uA_ID_JUMP_REG}
 }
 
 TraceValueMapping {
